@@ -97,10 +97,12 @@ def getTableTitle(page, bboxTable, prev_bottom):
 # =====================================
 
 def parse_ahsp_table(raw_table):
-    NO = re.compile(r'\d+\.?|[a-z]\.?')          # nomor urut: 1, 2., a, b
-    COEF = re.compile(r'\d+(?:[.,]\d+)*')        # angka: 0,067 / 26,406
-    KODE = re.compile(r'[A-Z]\.\d+')             # kode: L.01, B.1
-    regexesOfGroupNumbering = [NO,KODE]          # variasi regex yang dimiliki group 
+    NO = re.compile(r'\d+\.?|[a-z]\.?')              # nomor urut: 1, 2., a, b
+    COEF = re.compile(r'\d+(?:[.,]\d+)*')             # angka: 0,067 / 26,406
+    KODE = re.compile(r'[A-Z]\.\d+')                  # kode tenaga kerja: L.01
+    GROUP_HURUF_ANGKA = re.compile(r'[A-Z]\.\d+\.?')  # nomor grup: B.1
+    regexesOfGroupNumbering = [NO, GROUP_HURUF_ANGKA] # variasi nomor pembuka grup
+
     result = {
         "tenaga_kerja": [], "bahan": [], "peralatan": [],
         "jumlah_harga_tenaga_kerja": None, "jumlah_harga_bahan": None,
@@ -114,7 +116,6 @@ def parse_ahsp_table(raw_table):
     current_section = None
     last_item = None
     group = None
-    regexOfGroupNumbering = None
 
     for row in raw_table[1:]:
         vals = [' '.join(c.split()) for c in row if c and c.strip()]
@@ -146,16 +147,20 @@ def parse_ahsp_table(raw_table):
             if current_section == 'tenaga_kerja' and len(body) > 1 and KODE.fullmatch(body[-1]):
                 kode, body = body[-1], body[:-1]
 
-            # nomor urut di depan
+            # nomor urut di depan diambil jika formatnya salah satu dari 1, 2., a, b, A.1, B.1.
+            ALL_NO = re.compile(r'\d+\.?|[a-z]\.?|[A-Z]\.\d+\.?') # nomor urut format: 1, 2., a, b, A.1, B.1
             no = None
-            if len(body) > 1 and NO.fullmatch(body[0]):
+            if len(body) > 1 and ALL_NO.fullmatch(body[0]):
                 no, body = body[0], body[1:]
 
-            uraian = ' '.join(body)                  # uraian bisa pecah antar sel
+            uraian = ' '.join(body)  # uraian bisa pecah antar sel
 
-            # kelompok: jika ada grup, dan nomor uraian punya regex yang berbeda dengan nomor grup, uraian di concate dengan grup
-            if group and (no is None or not regexOfGroupNumbering.fullmatch(no)):
-                uraian = f"{group} - {uraian}"
+            # item dianggap sejajar dengan grup saat numberingnya berformat 1, 2., B.1, A.2.
+            if no:
+                if no.rstrip('.').isdigit() or GROUP_HURUF_ANGKA.fullmatch(no):
+                    group = None
+                elif group:
+                    uraian = f"{group} - {uraian}"
 
             koefisien = parse_koefisien(koef)
             if not isinstance(koefisien, float):
@@ -171,25 +176,24 @@ def parse_ahsp_table(raw_table):
             matched = False
             for regex in regexesOfGroupNumbering:
                 if regex.fullmatch(vals[0]):
-                    regexOfGroupNumbering = regex
                     group = vals[1]
                     last_item = None
+                    matched = True
                     break
-                if matched:
-                    continue
+            if matched:
+                continue
 
         # 3. selain itu: dianggap lanjutan uraian baris sebelumnya
         if last_item is not None:
             last_item["uraian"] += ' ' + ' '.join(vals)
         else:
-            result['complete'] = False     # tidak ada yang bisa disambung
+            result['complete'] = False
             print(f"BARIS TAK TERKLASIFIKASI: {vals}")
 
     if not (result["tenaga_kerja"] or result["bahan"] or result["peralatan"]):
         result['complete'] = False
 
     return result
-
 def parse_koefisien(val):
     if not val or val.strip() == '':
         return None
@@ -300,9 +304,14 @@ def remove_page_from_jsonl(pageNum):
 def jsonl_to_json(jsonlPath, jsonPath):
     with open(jsonlPath, 'r', encoding='utf-8') as fin:
         records = [json.loads(line) for line in fin if line.strip()]
+
+    # Hapus table_raw dari setiap record sebelum dump
+    for record in records:
+        record.pop('table_raw', None)
+
     records.sort(key=lambda r: numbering_key(r.get("title_numbering")))
     with open(jsonPath, 'w', encoding='utf-8') as fout:
-        json.dump(records, fout, ensure_ascii=False, indent=2)
+        json.dump(records, fout, ensure_ascii=False)
 
 def numbering_key(numbering):
     if not numbering:
@@ -318,7 +327,7 @@ def numbering_key(numbering):
 
 t = time.time()
 pageNums = expand_pages((1560, 1563))
-main(pageNums,False)
+# main(pageNums,False)
 jsonl_to_json(outputJsonlPath,outputJsonPath)
 print((time.time() - t), "waktu olah")
 # pprint.pprint(tabelCek, sort_dicts=False)
