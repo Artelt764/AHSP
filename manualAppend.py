@@ -44,8 +44,8 @@ def manualPush(arrOfAhsp):
 
 def createAhsp (page, title_numbering, title, arrOfDictTenagaKerja, arrofDictBahan, arrOfDictAlat):
 
-    a = table_return_template
-    b=ahsp_table_parsed_template
+    a = table_return_template.copy()
+    b=ahsp_table_parsed_template.copy()
     
     b["tenaga_kerja"] = arrOfDictTenagaKerja
     b["bahan"] = arrofDictBahan
@@ -59,7 +59,7 @@ def createAhsp (page, title_numbering, title, arrOfDictTenagaKerja, arrofDictBah
 
 
 def resource(uraian,kode,satuan,koefisien):
-    a = itemDictTemplate
+    a = itemDictTemplate.copy()
     a["uraian"] = uraian
     a["kode"] = kode
     a["satuan"] = satuan
