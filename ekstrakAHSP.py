@@ -24,7 +24,7 @@ outputJsonPath = "AirahspTable.json"
 historyPageNumsPath = "AirahspHistoryPageNumProcessed.json"
 
 
-def main(pageNums,keepHistory):
+def main(pageNums,keepHistory,identifier):
     historyPageNums = load_progress(historyPageNumsPath)
     with pdfplumber.open(ahspPath) as pdf:
         for pageNum in pageNums:
@@ -43,7 +43,7 @@ def main(pageNums,keepHistory):
                 bboxTable = table.bbox
                 title, titleNumbering = getTableTitle(page, bboxTable, prev_bottom)
                 tableOutput = table.extract()
-                tableParsed = parse_ahsp_table(tableOutput)
+                tableParsed = parse_ahsp_table(tableOutput,identifier)
 
                 if tableParsed["complete"] == False:
                     print(f"Tabel {titleNumbering}, Halaman {pageNum} tidak lengkap")
@@ -96,7 +96,16 @@ def getTableTitle(page, bboxTable, prev_bottom):
 
 # =====================================
 
-def parse_ahsp_table(raw_table):
+def parse_ahsp_table(raw_table,identifier):
+    if identifier == "ciptakarya":
+        hasil = parse_ahsp_table_ciptakarya(raw_table)
+    if identifier == "sda":
+        hasil = parse_ahsp_table_sda(raw_table)
+
+    return hasil
+
+
+def parse_ahsp_table_ciptakarya(raw_table):
     NO = re.compile(r'\d+\.?|[a-z]\.?')               # nomor urut: 1, 2., a, b
     COEF = re.compile(r'\d+(?:[.,]\d+)*')              # angka: 0,067 / 26,406
     KODE = re.compile(r'[A-Z]+(?:\.[A-Za-z0-9]+)+')    # kode: L.01, T.13.a, T.34
@@ -203,6 +212,82 @@ def parse_ahsp_table(raw_table):
 
     return result
 
+def parse_ahsp_table_sda(raw_table):
+    GROUP_HURUF_ANGKA = re.compile(r'[A-Z]\.\d+\.?')   # B.1
+    section_map = {'A': 'tenaga_kerja', 'B': 'bahan', 'C': 'peralatan'}
+
+    result = {
+        "tenaga_kerja": [], "bahan": [], "peralatan": [],
+        "jumlah_harga_tenaga_kerja": None, "jumlah_harga_bahan": None,
+        "jumlah_harga_alat": None, "total": None,
+        "persen_laba": None, "nominal_laba": None,
+        "harga_satuan_pekerjaan": None,
+        "complete": True,
+    }
+
+    current_section = None
+    group = None
+
+    logical_rows = []
+    for row in raw_table[1:]:
+        logical_rows.extend(expand_row(row))
+
+    for no, uraian, kode, satuan, koef, harga_satuan, jumlah_harga in logical_rows:
+        no, uraian = no.strip(), uraian.strip()
+        if not no and not uraian:
+            continue
+
+        sec_key = no.rstrip('.')
+
+        if no.lower().startswith('jumlah'):
+            group = None
+            continue
+        if sec_key in section_map:
+            current_section = section_map[sec_key]
+            group = None
+            continue
+        if sec_key == 'D':
+            break
+        if not current_section:
+            continue
+
+        koefisien = parse_koefisien(koef) if koef else None
+
+        # baris tanpa koefisien, hanya nomor+teks -> judul kelompok
+        if koefisien is None:
+            if uraian and not kode and not satuan:
+                group = uraian
+                continue
+            result['complete'] = False
+            continue
+
+        if not isinstance(koefisien, float):
+            result['complete'] = False
+
+        final_uraian = uraian
+        if no:
+            if sec_key.isdigit() or GROUP_HURUF_ANGKA.fullmatch(no):
+                group = None
+            elif group:
+                final_uraian = f"{group} - {uraian}"
+
+        item = {
+            "uraian": final_uraian,
+            "kode": kode or None,
+            "satuan": satuan or None,
+            "koefisien": koefisien,
+            "harga_satuan": harga_satuan or '',
+            "jumlah_harga": jumlah_harga or '',
+        }
+        result[current_section].append(item)
+
+    if not (result["tenaga_kerja"] or result["bahan"] or result["peralatan"]):
+        result['complete'] = False
+
+    return result
+
+
+# ====================================
 def parse_koefisien(val):
     if not val or val.strip() == '':
         return None
@@ -217,6 +302,46 @@ def clean_uraian(text):
         return text
     return re.sub(r'\s+', ' ', text).strip()
 
+def split_cell(cell):
+    if cell is None:
+        return []
+    s = str(cell).strip()
+    if not s:
+        return []
+    return [' '.join(x.split()) for x in s.split('\n') if x.strip()]
+
+def expand_row(row):
+    """Pecah satu baris raw_table yang selnya berisi banyak baris logis
+    (digabung '\\n') menjadi beberapa baris logis 7 kolom tetap."""
+    cols = [split_cell(c) for c in row]
+    while len(cols) < 7:
+        cols.append([])
+
+    no_lines = cols[0]
+    if not no_lines:
+        return []  # tidak ada info No sama sekali, abaikan
+
+    N = len(no_lines)
+    koef_lines = cols[4]
+    M = len(koef_lines)            # jumlah baris data (item) sesungguhnya
+    header_rows = max(N - M, 0)    # baris header section tanpa kode/satuan/koef
+
+    # ratakan uraian ke N baris: gabungkan kelebihan dari belakang (akibat wrap)
+    uraian_lines = list(cols[1])
+    while len(uraian_lines) > N and len(uraian_lines) >= 2:
+        last = uraian_lines.pop()
+        uraian_lines[-1] = uraian_lines[-1] + ' ' + last
+    while len(uraian_lines) < N:
+        uraian_lines.append('')
+
+    # ratakan kode/satuan/koefisien/harga: padding kosong di DEPAN
+    aligned = [no_lines, uraian_lines]
+    for col in cols[2:7]:
+        pad = N - len(col)
+        aligned.append([''] * max(pad, 0) + col)
+
+    return [[aligned[c][i] if i < len(aligned[c]) else '' for c in range(7)]
+            for i in range(N)]
 
 #=================================================
 #pindah ke js
@@ -336,7 +461,7 @@ def numbering_key(numbering):
 
 t = time.time()
 pageNums = expand_pages((878,881))
-main(pageNums,False)
+main(pageNums,False,"sda")
 jsonl_to_json(outputJsonlPath,outputJsonPath)
 print((time.time() - t), "waktu olah")
 # pprint.pprint(tabelCek, sort_dicts=False)
