@@ -68,7 +68,7 @@ def resource(uraian,kode,satuan,koefisien):
 
 arrayToPush = [
     createAhsp(
-        350, "C14", "C.14 Timbunan Biasa dari Sumber Galian (3.2.(1a))",
+        350, "C.14", "C.14 Timbunan Biasa dari Sumber Galian (3.2.(1a))",
         [
             resource("Pekerja","L01","Jam",0.0306),
             resource("Mandor","L03","Jam",0.0076),
