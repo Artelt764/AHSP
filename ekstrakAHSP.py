@@ -34,7 +34,7 @@ def main(pageNums,keepHistory,identifier):
                     print(f"halaman {pageNum} sudah ada di {historyPageNumsPath}, lewati")
                     continue
             if not keepHistory:
-                remove_page_from_jsonl(pageNum)
+                remove_page_from_jsonl(pageNum,outputJsonlPath)
 
             page = pdf.pages[pageNum-1] 
             tables = page.find_tables()
@@ -56,7 +56,7 @@ def main(pageNums,keepHistory,identifier):
                     "table_parsed": tableParsed,
                     "complete": tableParsed['complete']
                 }
-                append_to_jsonl(tableReturn)
+                append_to_jsonl(tableReturn,outputJsonlPath)
                 prev_bottom = bboxTable[3]  # update batas bawah utk tabel berikutnya
 
             update_history(historyPageNumsPath, historyPageNums, [pageNum])
@@ -407,8 +407,8 @@ def format_koefisien(val, decimals=3):
     return formatted.replace('.', ',')
 
 #==============================
-def append_to_jsonl(tableReturn):
-    with open(outputJsonlPath, 'a', encoding='utf-8') as f:
+def append_to_jsonl(tableReturn,jsonlPath):
+    with open(jsonlPath, 'a', encoding='utf-8') as f:
         f.write(json.dumps(tableReturn, ensure_ascii=False) + '\n')
 
 def load_progress (historyPageNumsPath):
@@ -424,16 +424,16 @@ def update_history(historyPageNumsPath,historyPageNums,pageNums):
     with open (historyPageNumsPath,'w',encoding='utf-8') as f:
         json.dump(historyPageNumsSetted,f)
 
-def remove_page_from_jsonl(pageNum):
-    if not os.path.exists(outputJsonlPath):
+def remove_page_from_jsonl(pageNum,jsonlPath):
+    if not os.path.exists(jsonlPath):
         return
-    tmpPath = outputJsonlPath + ".tmp"
-    with open(outputJsonlPath, 'r', encoding='utf-8') as fin, \
+    tmpPath = jsonlPath + ".tmp"
+    with open(jsonlPath, 'r', encoding='utf-8') as fin, \
          open(tmpPath, 'w', encoding='utf-8') as fout:
         for line in fin:
             if line.strip() and json.loads(line)["page_num"] != pageNum:
                 fout.write(line)
-    os.replace(tmpPath, outputJsonlPath)
+    os.replace(tmpPath, jsonlPath)
 
 def jsonl_to_json(jsonlPath, jsonPath):
     with open(jsonlPath, 'r', encoding='utf-8') as fin:
@@ -459,10 +459,12 @@ def numbering_key(numbering):
     return tuple(key)
 #========================
 
-t = time.time()
-pageNums = expand_pages((878,881))
-main(pageNums,False,"sda")
-jsonl_to_json(outputJsonlPath,outputJsonPath)
-print((time.time() - t), "waktu olah")
-# pprint.pprint(tabelCek, sort_dicts=False)
+if __name__ == "__main__":
+
+    t = time.time()
+    pageNums = expand_pages((878,881))
+    main(pageNums,False,"sda")
+    jsonl_to_json(outputJsonlPath,outputJsonPath)
+    print((time.time() - t), "waktu olah")
+    # pprint.pprint(tabelCek, sort_dicts=False)
 
