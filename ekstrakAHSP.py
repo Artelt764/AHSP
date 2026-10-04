@@ -18,10 +18,10 @@ def expand_pages(*specs):
     return sorted(set(pages))  # buang duplikat, urut naik
 
 #=====
-ahspPath = "Lampiran-VI-SE-DJBK-No-47-Tahun-2026-AHSP-Bidang-Cipta-Karya.pdf"
-outputJsonlPath = "ahspTable.jsonl"
-outputJsonPath = "ahspTable.json"
-historyPageNumsPath = "ahspHistoryPageNumProcessed.json"
+ahspPath = "Lampiran-IV-SE-DJBK-No-47-Tahun-2026-AHSP-Bidang-Sumber-Daya-Air.pdf"
+outputJsonlPath = "AirahspTable.jsonl"
+outputJsonPath = "AirahspTable.json"
+historyPageNumsPath = "AirahspHistoryPageNumProcessed.json"
 
 
 def main(pageNums,keepHistory):
@@ -64,7 +64,7 @@ def main(pageNums,keepHistory):
         
 
 def getTableTitle(page, bboxTable, prev_bottom):
-    pattern_start = re.compile(r'^\s*(\d+(?:\.(?:\d+|[A-Za-z]))+)\.?\s+')
+    pattern_start = re.compile(r'^\s*(\d+|[A-Z]+(?:\.(?:\d+|[A-Za-z]|\d+[a-zA-Z]+))+)\.?\s+')
     x0_table, top_table, x1_table, bottom_table = bboxTable
 
     crop_bbox = (0, max(0, prev_bottom), page.width, top_table)
@@ -97,11 +97,13 @@ def getTableTitle(page, bboxTable, prev_bottom):
 # =====================================
 
 def parse_ahsp_table(raw_table):
-    NO = re.compile(r'\d+\.?|[a-z]\.?')              # nomor urut: 1, 2., a, b
-    COEF = re.compile(r'\d+(?:[.,]\d+)*')             # angka: 0,067 / 26,406
-    KODE = re.compile(r'[A-Z]\.\d+')                  # kode tenaga kerja: L.01
-    GROUP_HURUF_ANGKA = re.compile(r'[A-Z]\.\d+\.?')  # nomor grup: B.1
-    regexesOfGroupNumbering = [NO, GROUP_HURUF_ANGKA] # variasi nomor pembuka grup
+    NO = re.compile(r'\d+\.?|[a-z]\.?')               # nomor urut: 1, 2., a, b
+    COEF = re.compile(r'\d+(?:[.,]\d+)*')              # angka: 0,067 / 26,406
+    KODE = re.compile(r'[A-Z]+(?:\.[A-Za-z0-9]+)+')    # kode: L.01, T.13.a, T.34
+    GROUP_HURUF_ANGKA = re.compile(r'[A-Z]\.\d+\.?')   # nomor grup: B.1
+    SECTION_RE = re.compile(r'^([ABC])\.(?:\s+.*)?$')  # "A. Tenaga Kerja" atau "A."
+    ALL_NO = re.compile(r'\d+\.?|[a-z]\.?|[A-Z]\.\d+\.?')  # 1, 2., a, b, A.1, B.1.
+    regexesOfGroupNumbering = [NO, GROUP_HURUF_ANGKA]  # variasi nomor pembuka grup
 
     result = {
         "tenaga_kerja": [], "bahan": [], "peralatan": [],
@@ -127,11 +129,18 @@ def parse_ahsp_table(raw_table):
         if first.lower().startswith('jumlah'):
             last_item = group = None
             continue
-        if first in section_map:
+
+        m = SECTION_RE.match(first)
+        if m:
+            current_section = section_map[m.group(1)]
+            last_item = group = None
+            continue
+        if first in section_map:                      # format lama: "A" saja
             current_section = section_map[first]
             last_item = group = None
             continue
-        if first == 'D':
+
+        if first.rstrip('.') == 'D':
             break
         if not current_section:
             continue
@@ -143,12 +152,11 @@ def parse_ahsp_table(raw_table):
             satuan, koef = vals[-2], vals[-1]
             kode, body = None, vals[:-2]
 
-            # kode hanya untuk tenaga kerja, dikenali dari bentuknya (boleh kosong)
-            if current_section == 'tenaga_kerja' and len(body) > 1 and KODE.fullmatch(body[-1]):
+            # kode dikenali dari bentuknya, berlaku untuk semua section (boleh kosong)
+            if len(body) > 1 and KODE.fullmatch(body[-1]):
                 kode, body = body[-1], body[:-1]
 
-            # nomor urut di depan diambil jika formatnya salah satu dari 1, 2., a, b, A.1, B.1.
-            ALL_NO = re.compile(r'\d+\.?|[a-z]\.?|[A-Z]\.\d+\.?') # nomor urut format: 1, 2., a, b, A.1, B.1
+            # nomor urut di depan diambil jika formatnya 1, 2., a, b, A.1, B.1.
             no = None
             if len(body) > 1 and ALL_NO.fullmatch(body[0]):
                 no, body = body[0], body[1:]
@@ -194,6 +202,7 @@ def parse_ahsp_table(raw_table):
         result['complete'] = False
 
     return result
+
 def parse_koefisien(val):
     if not val or val.strip() == '':
         return None
@@ -326,8 +335,8 @@ def numbering_key(numbering):
 #========================
 
 t = time.time()
-pageNums = expand_pages((1560, 1563))
-# main(pageNums,False)
+pageNums = expand_pages((878,881))
+main(pageNums,False)
 jsonl_to_json(outputJsonlPath,outputJsonPath)
 print((time.time() - t), "waktu olah")
 # pprint.pprint(tabelCek, sort_dicts=False)
